@@ -1,0 +1,8 @@
+[package]
+name = "so2wrap"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+socket2 = "0.6"
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"] }
