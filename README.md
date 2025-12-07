@@ -1,15 +1,15 @@
 # BoundSocket: Exclusive & Self-Healing Socket Reservation for Tokio
 
-A robust, asynchronous wrapper around a network socket that enables **exclusive access** for listening and guarantees **continuous port reservation** through automatic re-binding.
+A robust, asynchronous wrapper around a TCP server socket that enables **exclusive access** for listening and guarantees **continuous port reservation** through automatic re-binding.
 
-## ✨ Features
+## Features
 
 * **Continuous Port Reservation:** Binds the socket immediately upon creation (`BoundSocket::new`), effectively "reserving" the port. If the listening functionality is temporarily dropped, the port is instantly re-bound and reserved for future use.
 * **Exclusive Access Control:** Uses `tokio::sync::Mutex` and `tokio::sync::Notify` to ensure only a single task can acquire the `ListeningSocket` at any given time.
 * **Self-Healing:** When the exclusive `ListeningSocket` is dropped, the underlying socket is closed and immediately re-created and re-bound to the same address in the background, ensuring the port is never released to other processes.
 * **Idiomatic Tokio:** Built using modern asynchronous primitives for safe, concurrent operation.
 
-## 💡 The Core Idea: Early Binding and Reservation
+## The Core Idea: Early Binding and Reservation
 
 In standard applications, a socket is only bound (`bind`) and put into listening mode (`listen`) right before it's ready to accept connections. If the server temporarily stops listening or crashes, the port is freed.
 
@@ -21,9 +21,24 @@ The **`BoundSocket`** approach guarantees that a program **reserves a critical s
 
 This ensures **continuous server port availability** for your application.
 
-## 🚀 Usage
+## Examples
 
-### 1. Setup
+The following examples demonstrate how to use the `BoundSocket` to implement a simple TCP server that processes one connection at a time.
+
+### Server Example (`server.rs`)
+
+This loop illustrates the **core principle** of exclusive access and re-binding:
+
+1.  It calls `bound_socket.listen(128).await?` to **acquire the exclusive `ListeningSocket`**. Other callers to `listen()` would block here.
+2.  It accepts exactly **one client** (`listening_socket.accept().await?`).
+3.  The main loop scope ends, and the `listening_socket` is **dropped**.
+4.  The $\text{Drop}$ implementation immediately **re-binds the socket** in the background (ensuring that the port is reserved) and notifies the next waiting task (or allows the loop to continue its next iteration).
+
+### Client Example (client.rs)
+
+A simple tokio::net::TcpStream client used to test the server. It connects, sends a message, reads the response, and closes. This client is used to trigger the accept call in the server example.
+
+## Usage
 
 Add the required dependencies to your `Cargo.toml`:
 
