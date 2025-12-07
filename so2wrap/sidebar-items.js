@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["bound_socket"]};
+window.SIDEBAR_ITEMS = {"mod":["bound_tcp_socket"]};

@@ -1,0 +1,1 @@
+rd_("f[1,\"\"]00f[0,\"\"]11Ba[6,\"core::result\",\"core::result\"]Be[8,\"std::io::error\",\"std::io::error\"]Ak[5,\"core::any\",\"core::any\"]4f[3,\"\"]Cg[5,\"tokio::net::tcp::stream\",\"tokio::net::tcp::stream\"]6Ce[6,\"core::net::socket_addr\",\"core::net::socket_addr\"]Ck[5,\"so2wrap::bound_tcp_socket\",\"so2wrap::bound_tcp_socket\"]0m[2,\"so2wrap\"]")
