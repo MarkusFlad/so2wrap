@@ -22,6 +22,7 @@ struct Inner {
     notify: Notify,
     addr: SocketAddr,
     last_local_addr: Mutex<SocketAddr>,
+    tokio_runtime_handle: tokio::runtime::Handle,
 }
 
 struct State {
@@ -51,8 +52,15 @@ impl BoundSocket {
         let socket = Self::create_bound_socket(addr)?;
         let local_addr = match socket.local_addr()?.as_socket() {
             Some(local_addr) => local_addr,
-            None => unreachable!("Socket2 socket has no SocketAddr after binding."),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Failed to retrieve a valid SocketAddr after binding (non-socket address returned).",
+                ));
+            }
         };
+        // Store the current tokio runtime handle for use in Drop impls
+        let tokio_runtime_handle = tokio::runtime::Handle::current();
         Ok(Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
@@ -62,6 +70,7 @@ impl BoundSocket {
                 notify: Notify::new(),
                 addr,
                 last_local_addr: Mutex::new(local_addr),
+                tokio_runtime_handle,
             }),
         })
     }
@@ -170,11 +179,9 @@ impl Drop for ListeningSocket {
     fn drop(&mut self) {
         let inner = self.inner.clone();
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                Self::cleanup(inner).await;
-            });
-        }
+        self.inner.tokio_runtime_handle.spawn(async move {
+            Self::cleanup(inner).await;
+        });
     }
 }
 
