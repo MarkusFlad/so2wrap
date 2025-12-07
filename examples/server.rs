@@ -1,4 +1,5 @@
 use clap::Parser;
+use so2wrap::bound_socket::BoundSocket;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -10,29 +11,31 @@ struct Args {
     ip: String,
 
     /// Port to bind to (0 = OS chooses)
-    #[clap(short, long, default_value = "0")]
+    #[clap(short, long, default_value = "14722")]
     port: u16,
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() {
     let args = Args::parse();
-    let addr: SocketAddr = format!("{}:{}", args.ip, args.port).parse().unwrap();
+    let server_addr: SocketAddr = format!("{}:{}", args.ip, args.port).parse().unwrap();
+    if let Err(e) = main_loop(server_addr).await {
+        eprintln!("Server error: {}", e);
+    }
+}
 
-    println!("Starting BoundSocket server on {}", addr);
+async fn main_loop(server_addr: SocketAddr) -> std::io::Result<()> {
+    println!("Starting BoundSocket server on {}", server_addr);
+    let bound_socket = BoundSocket::new(server_addr).await?;
 
-    let bound = bound_socket::BoundSocket::new(addr).await?;
-    
     loop {
-        // Acquire exclusive listener
-        let listener = bound.listen(128).await?;
-        let local_addr = bound.local_addr().await;
+        // Acquire exclusive ListeningSocket
+        let listening_socket = bound_socket.listen(128).await?;
+        let local_addr = bound_socket.local_addr().await;
         println!("Listening on {}", local_addr);
-
         // Accept a client
-        let (mut socket, peer_addr) = listener.accept().await?;
+        let (mut socket, peer_addr) = listening_socket.accept().await?;
         println!("Accepted connection from {}", peer_addr);
-
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
             match socket.read(&mut buf).await {
@@ -43,8 +46,6 @@ async fn main() -> std::io::Result<()> {
                 _ => println!("Client disconnected or error"),
             }
         });
-
-        // Drop listener to trigger hot-swap for next client
-        drop(listener);
+        // ListeningSocket is dropped here, allowing new connections via cloned BoundSockets
     }
 }

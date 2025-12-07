@@ -39,14 +39,14 @@ pub struct ListeningSocket {
 impl BoundSocket {
     /// Async-Constructor for BoundSocket. Binds the socket to the given address. Fails if the address is already in use.
     /// Blocks until the socket is successfully created and bound.
-    /// 
+    ///
     /// # Arguments
     /// * `addr` - The address to bind the socket to.
-    /// 
+    ///
     /// # Returns
     /// * `std::io::Result<BoundSocket>` - The created BoundSocket or an error.
     /// * Returns an error if the socket could not be created or bound.
-    /// 
+    ///
     pub async fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = Self::create_bound_socket(addr)?;
         let local_addr = match socket.local_addr()?.as_socket() {
@@ -61,23 +61,23 @@ impl BoundSocket {
                 }),
                 notify: Notify::new(),
                 addr,
-                last_local_addr : Mutex::new(local_addr),
+                last_local_addr: Mutex::new(local_addr),
             }),
         })
     }
     /// Acquires the BoundSocket for listening. If another task has already acquired the socket, this method
     /// will wait until the socket is released. When the returned ListeningSocket is dropped, the socket is closed
     /// and a new one is created and bound to the same address. Waiting tasks are notified.
-    /// 
+    ///
     /// # Arguments
     /// * `backlog` - The backlog for the listening socket.
-    /// 
+    ///
     /// # Returns
     /// * `std::io::Result<ListeningSocket>` - The acquired ListeningSocket or an error.
-    /// 
+    ///
     /// # Errors
     /// * Returns an error if the socket could not be listened on.
-    /// 
+    ///
     pub async fn listen(&self, backlog: i32) -> std::io::Result<ListeningSocket> {
         loop {
             let mut guard = self.inner.state.lock().await;
@@ -103,12 +103,24 @@ impl BoundSocket {
         }
     }
     /// Returns the last known local address of the BoundSocket.
-    /// 
+    ///
     /// # Returns
     /// * `SocketAddr` - The last known local address.
     pub async fn local_addr(&self) -> SocketAddr {
         *self.inner.last_local_addr.lock().await
     }
+    /// Creates and binds a new socket to the given address. Used internally when creating a new BoundSocket or recreating
+    /// the socket after dropping a ListeningSocket.
+    ///
+    /// # Arguments
+    /// * `addr` - The address to bind the socket to.
+    ///
+    /// # Returns
+    /// * `std::io::Result<Socket>` - The created and bound socket or an error.
+    ///
+    /// # Errors
+    /// * Returns an error if the socket could not be created or bound.
+    ///
     fn create_bound_socket(addr: SocketAddr) -> std::io::Result<Socket> {
         let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
         // Note: set_nonblocking must be set before using in tokio (since tokio 1.37)
@@ -121,13 +133,13 @@ impl BoundSocket {
 
 impl ListeningSocket {
     /// Accepts a new incoming connection on the ListeningSocket.
-    /// 
+    ///
     /// # Returns
     /// * `std::io::Result<(TcpStream, SocketAddr)>` - The accepted TcpStream and the remote address or an error.
-    /// 
+    ///
     /// # Errors
     /// * Returns an error if the accept operation fails.
-    /// 
+    ///
     pub async fn accept(&self) -> std::io::Result<(TcpStream, SocketAddr)> {
         self.tcp_listener.accept().await
     }
@@ -138,14 +150,14 @@ impl ListeningSocket {
         guard.socket = None;
         guard.active = false;
 
-        if let Ok(new_socket) = BoundSocket::create_bound_socket(inner.addr) {
-            if let Ok(sockaddr) = new_socket.local_addr() {
-                if let Some(sa) = sockaddr.as_socket() {
+        if let Ok(new_bound_socket) = BoundSocket::create_bound_socket(inner.addr) {
+            if let Ok(local_sock_addr) = new_bound_socket.local_addr() {
+                if let Some(local_socket_addr) = local_sock_addr.as_socket() {
                     let mut addr_guard = inner.last_local_addr.lock().await;
-                    *addr_guard = sa; // ✅ jetzt ist sie aktuell!
+                    *addr_guard = local_socket_addr;
                 }
             }
-            guard.socket = Some(new_socket);
+            guard.socket = Some(new_bound_socket);
         }
 
         inner.notify.notify_one();

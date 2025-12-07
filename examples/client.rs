@@ -24,7 +24,6 @@ async fn main() -> std::io::Result<()> {
     let addr: SocketAddr = format!("{}:{}", args.ip, args.port).parse().unwrap();
 
     println!("Connecting to server at {}", addr);
-
     let mut stream = tokio::net::TcpStream::connect(addr).await?;
     stream.write_all(args.message.as_bytes()).await?;
     println!("Sent: {}", args.message);
@@ -32,6 +31,5 @@ async fn main() -> std::io::Result<()> {
     let mut buf = [0u8; 1024];
     let n = stream.read(&mut buf).await?;
     println!("Received: {}", String::from_utf8_lossy(&buf[..n]));
-
     Ok(())
 }

@@ -1,7 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use so2wrap::bound_socket::BoundSocket;
-use tokio::net::TcpStream;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 #[tokio::test]
 async fn bound_socket_real_tcp_handover_between_two_primaries() {
@@ -35,9 +35,7 @@ async fn bound_socket_real_tcp_handover_between_two_primaries() {
     // PRIMARY 2
     // ─────────────────────────────────────────────
     let bound_clone2 = bound.clone();
-    let tcp_server2 = tokio::spawn(async move {
-        bound_clone2.listen(128).await.unwrap()
-    });
+    let tcp_server2 = tokio::spawn(async move { bound_clone2.listen(128).await.unwrap() });
     let listening_socket_server2 = tcp_server2.await.unwrap();
     // Actual IP address should be the same (port may differ because of re-binding and OS behavior with 0 port)
     let actual_addr_2 = bound.local_addr().await;
