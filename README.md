@@ -1,3 +1,5 @@
+[![API Docs](https://img.shields.io/badge/API%20Docs-Rustdoc-blue)](https://markusflad.github.io/so2wrap/so2wrap/)
+
 # BoundSocket: Exclusive & Self-Healing Socket Reservation for Tokio
 
 A robust, asynchronous wrapper around a TCP server socket that enables **exclusive access** for listening and guarantees **continuous port reservation** through automatic re-binding.
