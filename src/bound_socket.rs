@@ -1,11 +1,11 @@
 //! # BoundSocket: Thread-Safe, Rebindable TCP Listener Wrapper
 //!
-//! **Async-Wrapper** for a **[[BoundSocket]]** that allows **exclusive, sequential acquisition** of the socket.
-//! Accessing the actual socket always requires acquiring a **[[ListeningSocket]]**.
+//! **Async-Wrapper** for a **[BoundSocket]** that allows **exclusive, sequential acquisition** of the socket.
+//! Accessing the actual socket always requires acquiring a **[ListeningSocket]**.
 //!
 //! **The key invariants of this design are:**
-//! 1. **Exclusivity:** Only one task can hold a **[[ListeningSocket]]** at any given time.
-//! 2. **Auto-Rebind:** When the **[[ListeningSocket]]** is dropped, the underlying socket is **atomically** closed and
+//! 1. **Exclusivity:** Only one task can hold a **[ListeningSocket]** at any given time.
+//! 2. **Auto-Rebind:** When the **[ListeningSocket]** is dropped, the underlying socket is **atomically** closed and
 //!    a **new one** is immediately created and bound to the same address.
 //! 3. **Notification:** Waiting tasks are notified and can immediately retry acquiring the socket via **[BoundSocket::listen()]**.
 //!
@@ -23,13 +23,13 @@ use tokio::{
 
 /// **BoundSocket: Thread-safe, Rebindable, Exclusive Socket Container**
 ///
-/// Async-Wrapper for a **[[BoundSocket]]** that allows **exclusive acquisition**. Accessing the actual socket always
-/// requires acquiring a **[[ListeningSocket]]** (via method **[BoundSocket::listen()]**).
+/// Async-Wrapper for a **[BoundSocket]** that allows **exclusive acquisition**. Accessing the actual socket always
+/// requires acquiring a **[ListeningSocket]** (via method **[BoundSocket::listen()]**).
 ///
-/// **Only one** **[[ListeningSocket]]** can exist for a given **[[BoundSocket]]** at any time.
-/// When the **[[ListeningSocket]]** is dropped, the underlying operating system socket is closed and a new one is
+/// **Only one** **[ListeningSocket]** can exist for a given **[BoundSocket]** at any time.
+/// When the **[ListeningSocket]** is dropped, the underlying operating system socket is closed and a new one is
 /// created and bound to the same address. Waiting tasks are notified and can immediately compete to acquire the
-/// **[[ListeningSocket]]** via the **[BoundSocket::listen()]** method.
+/// **[ListeningSocket]** via the **[BoundSocket::listen()]** method.
 #[derive(Clone)]
 pub struct BoundSocket {
     inner: Arc<Inner>,
@@ -39,7 +39,7 @@ pub struct BoundSocket {
 struct Inner {
     /// Protects the **`State`** and ensures atomic transitions between listening and unbound states.
     state: Mutex<State>,
-    /// Used to notify waiting tasks when the socket is released (i.e., when **[[ListeningSocket]]** is dropped).
+    /// Used to notify waiting tasks when the socket is released (i.e., when **[ListeningSocket]** is dropped).
     notify: Notify,
     /// The original address the socket should always be bound to.
     addr: SocketAddr,
@@ -51,7 +51,7 @@ struct Inner {
 
 /// **Current Status and Socket Handle**
 struct State {
-    /// **Invariant Flag**: **`true`** if a **[[ListeningSocket]]** is currently active (acquired).
+    /// **Invariant Flag**: **`true`** if a **[ListeningSocket]** is currently active (acquired).
     active: bool,
     /// The underlying **`socket2::Socket`**. It is **`Some`** when available for acquisition, and **`None`** when active
     /// or being recreated.
@@ -62,13 +62,13 @@ struct State {
 ///
 /// This struct represents the **exclusive lease** to listen on the underlying socket.
 ///
-/// **Invariant**: Only one **[[ListeningSocket]]** instance can exist for a **[[BoundSocket]]** at any time.
+/// **Invariant**: Only one **[ListeningSocket]** instance can exist for a **[BoundSocket]** at any time.
 ///
 /// When this struct is dropped, the underlying OS socket is closed and a **new one is immediately created and bound**
 /// to the original address (**`addr`** in **`Inner`**). Waiting tasks are notified.
 ///
 /// This struct wraps a Tokio **`TcpListener`** for standard async **`accept`** operations. Use the **[BoundSocket::listen()]** method of
-/// the **[[BoundSocket]]** to create an instance.
+/// the **[BoundSocket]** to create an instance.
 pub struct ListeningSocket {
     inner: Arc<Inner>,
     tcp_listener: TcpListener,
@@ -79,13 +79,13 @@ impl BoundSocket {
     ///
     /// Creates a new **`socket2::Socket`**, sets standard options (**`SO_REUSEADDR`**, **`non-blocking`**), and binds it
     /// to the specified address. It also captures the current Tokio runtime handle for the **`Drop`** implementation
-    /// of **[[ListeningSocket]]**.
+    /// of **[ListeningSocket]**.
     ///
     /// # Arguments
     /// * **`addr`** - The address (**`IP:Port`**) to bind the socket to. If the port is **`0`**, a random available port is used.
     ///
     /// # Returns
-    /// * **`std::io::Result<BoundSocket>`** - The created **[[BoundSocket]]** or an error if binding fails (e.g., address already in use).
+    /// * **`std::io::Result<BoundSocket>`** - The created **[BoundSocket]** or an error if binding fails (e.g., address already in use).
     ///
     pub async fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = Self::create_bound_socket(addr)?;
@@ -118,7 +118,7 @@ impl BoundSocket {
     /// **Acquire Exclusive Listening Lease**
     ///
     /// **Primary public method** to acquire the socket for listening. If another task currently holds the
-    /// **[[ListeningSocket]]** lease, this method will **asynchronously wait** until the previous lease is dropped
+    /// **[ListeningSocket]** lease, this method will **asynchronously wait** until the previous lease is dropped
     /// and the socket is rebound.
     ///
     /// **Atomic state transition:** When a socket is available, it is **consumed** from the internal state
@@ -128,7 +128,7 @@ impl BoundSocket {
     /// * **`backlog`** - The maximum length to which the queue of pending connections may grow (passed to **`socket2::listen`**).
     ///
     /// # Returns
-    /// * **`std::io::Result<ListeningSocket>`** - The acquired **[[ListeningSocket]]** or an error (e.g., if listening fails).
+    /// * **`std::io::Result<ListeningSocket>`** - The acquired **[ListeningSocket]** or an error (e.g., if listening fails).
     ///
     /// # Errors
     /// * Returns an error if the underlying **`socket2::listen`** call fails.
@@ -221,7 +221,7 @@ impl ListeningSocket {
 
     /// **Asynchronous Cleanup and Socket Re-creation**
     ///
-    /// This static async method performs the core logic when a **[[ListeningSocket]]** is dropped:
+    /// This static async method performs the core logic when a **[ListeningSocket]** is dropped:
     /// 1. Sets **`active`** to **`false`** and clears the old socket reference.
     /// 2. Attempts to create and bind a **new** socket to the original address.
     /// 3. Updates **`last_local_addr`** if the rebind was successful (relevant for port **`0`**).
@@ -255,7 +255,7 @@ impl ListeningSocket {
 impl Drop for ListeningSocket {
     /// **Drop Handler: Triggers Asynchronous Re-Binding**
     ///
-    /// When the **[[ListeningSocket]]** is dropped, the underlying lock must be released, the old socket destroyed,
+    /// When the **[ListeningSocket]** is dropped, the underlying lock must be released, the old socket destroyed,
     /// and a new one created. Since these operations are fallible and require **`await`**, they must be performed
     /// on a Tokio runtime thread.
     ///
