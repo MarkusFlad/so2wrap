@@ -4,11 +4,14 @@
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{Mutex, Notify};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::{Mutex, Notify},
+};
 
 /// Async-Wrapper for a Bound Socket that allows exclusive acquisition of the socket. Accessing the actual socket allways
-/// requires acquiring a Boun via the `acquire` method. Only one BoundSocketGuard can exist at a time.
-/// When the BoundSocketGuard is dropped, the socket is closed and a new one is created and bound to the same address.
+/// requires acquiring a Listening Socket. When the Listening Socket is dropped, the socket is closed and a new one is created
+/// and bound to the same address. Waiting tasks are notified.
 #[derive(Clone)]
 pub struct BoundSocket {
     inner: Arc<Inner>,
@@ -18,6 +21,7 @@ struct Inner {
     state: Mutex<State>,
     notify: Notify,
     addr: SocketAddr,
+    last_local_addr: Mutex<SocketAddr>,
 }
 
 struct State {
@@ -25,28 +29,30 @@ struct State {
     socket: Option<Socket>,
 }
 
-/// Exclusive Bound Socket Guard there only can be one at a time. When dropped, the socket is closed
+/// Exclusive Listening Socket. There only can be one at a time for one Bound Socket. When dropped, the socket is closed
 /// and a new one is created and bound to the same address. Waiting tasks are notified.
-pub struct BoundSocketGuard {
+pub struct ListeningSocket {
     inner: Arc<Inner>,
-    socket: Option<Socket>,
+    tcp_listener: TcpListener,
 }
 
 impl BoundSocket {
     /// Async-Constructor for BoundSocket. Binds the socket to the given address. Fails if the address is already in use.
-    ///
+    /// Blocks until the socket is successfully created and bound.
+    /// 
     /// # Arguments
     /// * `addr` - The address to bind the socket to.
-    ///
+    /// 
     /// # Returns
     /// * `std::io::Result<BoundSocket>` - The created BoundSocket or an error.
-    ///
-    /// # Errors
     /// * Returns an error if the socket could not be created or bound.
-    /// ```
+    /// 
     pub async fn new(addr: SocketAddr) -> std::io::Result<Self> {
         let socket = Self::create_bound_socket(addr)?;
-
+        let local_addr = match socket.local_addr()?.as_socket() {
+            Some(local_addr) => local_addr,
+            None => unreachable!("Socket2 socket has no SocketAddr after binding."),
+        };
         Ok(Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
@@ -55,72 +61,108 @@ impl BoundSocket {
                 }),
                 notify: Notify::new(),
                 addr,
+                last_local_addr : Mutex::new(local_addr),
             }),
         })
     }
-
-    /// Wartet ASYNC, bis dieser Wrapper exklusiver Primary wird
-    pub async fn acquire(&self) -> std::io::Result<BoundSocketGuard> {
+    /// Acquires the BoundSocket for listening. If another task has already acquired the socket, this method
+    /// will wait until the socket is released. When the returned ListeningSocket is dropped, the socket is closed
+    /// and a new one is created and bound to the same address. Waiting tasks are notified.
+    /// 
+    /// # Arguments
+    /// * `backlog` - The backlog for the listening socket.
+    /// 
+    /// # Returns
+    /// * `std::io::Result<ListeningSocket>` - The acquired ListeningSocket or an error.
+    /// 
+    /// # Errors
+    /// * Returns an error if the socket could not be listened on.
+    /// 
+    pub async fn listen(&self, backlog: i32) -> std::io::Result<ListeningSocket> {
         loop {
             let mut guard = self.inner.state.lock().await;
 
             if !guard.active {
                 guard.active = true;
-                let socket = guard.socket.take().expect("Socket fehlt");
-
-                return Ok(BoundSocketGuard {
-                    inner: self.inner.clone(),
-                    socket: Some(socket),
-                });
+                match guard.socket.take() {
+                    Some(socket) => {
+                        socket.listen(backlog)?;
+                        let tcp_listener = tokio::net::TcpListener::from_std(socket.into())?;
+                        return Ok(ListeningSocket {
+                            inner: self.inner.clone(),
+                            tcp_listener,
+                        });
+                    }
+                    None => unreachable!(
+                        "BoundSocket invariant violated: socket was not active but no socket is present."
+                    ),
+                }
             }
-
             drop(guard);
             self.inner.notify.notified().await;
         }
     }
-
+    /// Returns the last known local address of the BoundSocket.
+    /// 
+    /// # Returns
+    /// * `SocketAddr` - The last known local address.
+    pub async fn local_addr(&self) -> SocketAddr {
+        *self.inner.last_local_addr.lock().await
+    }
     fn create_bound_socket(addr: SocketAddr) -> std::io::Result<Socket> {
         let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
+        // Note: set_nonblocking must be set before using in tokio (since tokio 1.37)
+        socket.set_nonblocking(true)?;
         socket.set_reuse_address(true)?;
         socket.bind(&addr.into())?;
         Ok(socket)
     }
 }
 
-impl BoundSocketGuard {
-    /// Darf nur vom Primary aufgerufen werden
-    pub fn listen(&self, backlog: i32) -> std::io::Result<()> {
-        self.socket.as_ref().unwrap().listen(backlog)
+impl ListeningSocket {
+    /// Accepts a new incoming connection on the ListeningSocket.
+    /// 
+    /// # Returns
+    /// * `std::io::Result<(TcpStream, SocketAddr)>` - The accepted TcpStream and the remote address or an error.
+    /// 
+    /// # Errors
+    /// * Returns an error if the accept operation fails.
+    /// 
+    pub async fn accept(&self) -> std::io::Result<(TcpStream, SocketAddr)> {
+        self.tcp_listener.accept().await
     }
+    /// Cleans up the ListeningSocket by closing the active socket and creating a new one bound to the same address.
+    /// Notifies one waiting task.
+    async fn cleanup(inner: Arc<Inner>) {
+        let mut guard = inner.state.lock().await;
+        guard.socket = None;
+        guard.active = false;
 
-    /// Darf nur vom Primary aufgerufen werden
-    pub fn accept(&self) -> std::io::Result<(Socket, SocketAddr)> {
-        let (sock, addr) = self.socket.as_ref().unwrap().accept()?;
-        let addr = addr.as_socket().unwrap();
-        Ok((sock, addr))
+        if let Ok(new_socket) = BoundSocket::create_bound_socket(inner.addr) {
+            if let Ok(sockaddr) = new_socket.local_addr() {
+                if let Some(sa) = sockaddr.as_socket() {
+                    let mut addr_guard = inner.last_local_addr.lock().await;
+                    *addr_guard = sa; // ✅ jetzt ist sie aktuell!
+                }
+            }
+            guard.socket = Some(new_socket);
+        }
+
+        inner.notify.notify_one();
     }
 }
 
-impl Drop for BoundSocketGuard {
+impl Drop for ListeningSocket {
+    /// Drops the ListeningSocket. Closes the active socket and creates a new one bound to the same address.
+    /// Notifies one waiting task.
     fn drop(&mut self) {
         let inner = self.inner.clone();
 
-        // Drop darf keinen .await enthalten → wir starten eine Fire-&-Forget-Task
-        tokio::spawn(async move {
-            let mut guard = inner.state.lock().await;
-
-            // Aktiven Socket explizit schließen
-            guard.socket = None;
-            guard.active = false;
-
-            // Neuen bereits gebundenen Socket erzeugen
-            if let Ok(new_socket) = BoundSocket::create_bound_socket(inner.addr) {
-                guard.socket = Some(new_socket);
-            }
-
-            // GENAU EINEN Wartenden wecken
-            inner.notify.notify_one();
-        });
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                Self::cleanup(inner).await;
+            });
+        }
     }
 }
 
@@ -151,7 +193,7 @@ mod tests {
 
             handles.push(tokio::spawn(async move {
                 // All five spawned tokio tasks want to be primary
-                let _guard = bound.acquire().await.unwrap();
+                let _guard = bound.listen(128).await.unwrap();
                 // Another spawend tokio task is now primary (before adding it should be 0)
                 let now = active.fetch_add(1, Ordering::SeqCst) + 1;
                 // Store the max simultaneous primaries seen so far (should never exceed 1)
