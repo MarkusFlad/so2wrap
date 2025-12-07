@@ -1,5 +1,6 @@
-//! Async-Wrapper for a Bound Socket that allows exclusive acquisition of the socket. When the BoundSocketGuard is dropped,
-//! the socket is closed and a new one is created and bound to the same address.
+//! Async-Wrapper for a Bound Socket that allows exclusive acquisition of the socket. Accessing the actual socket always
+//! requires acquiring a Listening Socket. When the Listening Socket is dropped, the socket is closed and a new one is created
+//! and bound to the same address. Waiting tasks are notified.
 
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
@@ -10,8 +11,9 @@ use tokio::{
 };
 
 /// Async-Wrapper for a Bound Socket that allows exclusive acquisition of the socket. Accessing the actual socket allways
-/// requires acquiring a Listening Socket. When the Listening Socket is dropped, the socket is closed and a new one is created
-/// and bound to the same address. Waiting tasks are notified.
+/// requires acquiring a Listening Socket (via method listen). There only can be one Listening Socket at a time for one Bound Socket.
+/// When the Listening Socket is dropped, the socket is closed and a new one is created and bound to the same address.
+/// Waiting tasks are notified and can acquire the Listening Socket via the listen method.
 #[derive(Clone)]
 pub struct BoundSocket {
     inner: Arc<Inner>,
@@ -32,6 +34,9 @@ struct State {
 
 /// Exclusive Listening Socket. There only can be one at a time for one Bound Socket. When dropped, the socket is closed
 /// and a new one is created and bound to the same address. Waiting tasks are notified.
+/// This struct wraps a Tokio TcpListener for async accept operations. Use the accept method to accept incoming connections.
+/// For creating a ListeningSocket,
+/// use the listen method of the BoundSocket.
 pub struct ListeningSocket {
     inner: Arc<Inner>,
     tcp_listener: TcpListener,
