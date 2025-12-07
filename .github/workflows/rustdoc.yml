@@ -20,7 +20,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build documentation
-        run: cargo doc --no-deps -- --html-root-url https://markusflad.github.io/so2wrap/
+        run: cargo doc --no-deps
+        env:
+            RUSTDOC_ARGS: --html-root-url https://markusflad.github.io/so2wrap/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
