@@ -40,6 +40,12 @@ This loop illustrates the **core principle** of exclusive access and re-binding:
 
 A simple tokio::net::TcpStream client used to test the server. It connects, sends a message, reads the response, and closes. This client is used to trigger the accept call in the server example.
 
+## Documentation
+
+The complete API documentation for `so2wrap` can be found here:
+
+[**Rustdoc API Documentation**](https://markusflad.github.io/so2wrap/so2wrap/)
+
 ## Usage
 
 Add the required dependencies to your `Cargo.toml`:
