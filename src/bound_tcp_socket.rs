@@ -12,6 +12,45 @@
 //! This pattern is ideal for services that need to temporarily release the listening state but must
 //! **guarantee continuous reservation of the bound TCP port** while ensuring only one component can listen on it
 //! at a time.
+//!
+//! # Example: Reusing a port with cloned BoundSockets
+//!
+//! ```no_run
+//! use so2wrap::bound_tcp_socket::BoundSocket;
+//! use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+//! use tokio::time::{sleep, Duration};
+//!
+//! #[tokio::main]
+//! async fn main() -> std::io::Result<()> {
+//!     // Bind the first BoundSocket
+//!     let port = 4711;
+//!     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+//!     let socket1 = BoundSocket::new(addr).await?;
+//!     // Clone the BoundSocket
+//!     let socket2 = socket1.clone();
+//!     // First task acquires the listener
+//!     let listener1 = socket1.listen(128).await?;
+//!     println!("Listener1 bound to port {port}");
+//!     let (tcp_stream1, _) = listener1.accept().await?; // just to use the listener once
+//!     // Spawn a task that waits to acquire the second listener
+//!     let handle = tokio::spawn(async move {
+//!         let listener2 = socket2.listen(128).await.unwrap();
+//!         println!("Listener2 bound to {port}");
+//!         let (tcp_stream2, _) = listener2.accept().await.unwrap(); // just to use the listener once
+//!     });
+//!     // Simulate some work with listener1
+//!     sleep(Duration::from_millis(100)).await;
+//!     // Drop listener1 → socket2 can now acquire the same port
+//!     drop(listener1);
+//!     // Wait for the second listener to be acquired
+//!     handle.await.unwrap();
+//!     Ok(())
+//! }
+//! ```
+//! This example demonstrates:
+//! 1. Cloning a `BoundSocket`.
+//! 2. Only one `ListeningSocket` may exist at a time.
+//! 3. After dropping the first `ListeningSocket`, the cloned `BoundSocket` can acquire the same port automatically.
 
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;

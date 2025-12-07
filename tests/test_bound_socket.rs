@@ -1,4 +1,4 @@
-use so2wrap::bound_socket::BoundSocket;
+use so2wrap::bound_tcp_socket::BoundSocket;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;

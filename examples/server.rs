@@ -1,5 +1,5 @@
 use clap::Parser;
-use so2wrap::bound_socket::BoundSocket;
+use so2wrap::bound_tcp_socket::BoundSocket;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
